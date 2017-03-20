@@ -3,7 +3,7 @@
 <head>
     <title>Random App Name17656</title>
 
-    <script type="text/javascript" src="/apps/2.0/sdk.js"></script>
+    <script type="text/javascript" src="/apps/2.1/sdk.js"></script>
 
     <script type="text/javascript">
         Rally.onReady(function () {
@@ -99,27 +99,33 @@ Ext.define('CustomApp', {
 
     _mapValue : function(value,field) {
 
-        console.log("mapping",value,field);
+        // console.log("mapping",value,field);
 
         var mappings = this._getValueMappings();
         var key = _.has(mappings,field) ? field : 'default';
-        console.log("key",key)
+        // console.log("key",key)
         var mapping = mappings[key];
-        console.log("mapping",mapping,mapping[value]);
+        // console.log(field + ":mapping",value,"to",mapping[value]);
         return _.has(mapping,value) ? mapping[value] : 0;
     },
 
     _applyWeigthing : function( fieldName, value ) {
 
         var weightings = this._getWeightings();
+        var weight = 1;
 
-        if ( _.has( weightings, fieldName ) )
-            return value * weightings[fieldName];
-        else
-            return value;
+        if ( _.has( weightings, fieldName ) ) {
+            // return value * weightings[fieldName];
+            weight = weightings[fieldName];
+        }
+        // else
+        //     return value;
+        // console.log("weighting:",fieldName,"value",value,"weight",weight,"wvalue",(weight*value));
+        return (weight*value);
     },
 
     _calcValue : function(record,calcField) {
+        // console.log("_calcValue");
 
         var that = this;
         var regex = /\w{2,50}/g ;
@@ -128,8 +134,10 @@ Ext.define('CustomApp', {
 
             var value;
 
-            if (that._isMappableField(fieldName,record)) 
+            if (that._isMappableField(fieldName,record)) {
+                // console.log("got value",record.get(fieldName),"from",fieldName);
                 value =  that._mapValue(record.get(fieldName),fieldName);
+            }
             else
                 value = record.get(fieldName);
 
@@ -142,17 +150,20 @@ Ext.define('CustomApp', {
         var value;
 
         try {
+            // console.log("formula",formula);
             value = eval(formula);
+            value = !_.isNumber(value) || _.isNaN(value) || !_.isFinite(value) ? 0 : value;
+            console.log("formula:",formula,"value",value);
         } catch (e) {
             return {
                 value : 0,
                 error : e.message
             }
         }
-        console.log("formula:",formula,"value",value);
+        
 
         return {
-            value : value,
+            value : (Math.round(value * 100) / 100),
             error : null
         }
     },
@@ -160,6 +171,7 @@ Ext.define('CustomApp', {
     _onPICombobox: function() {
         var selectedType = this._piCombobox.getRecord();
         var model = selectedType.get('TypePath');
+        var that = this;
         
         if (this._grid !== null) {
             this._grid.destroy();
@@ -168,12 +180,19 @@ Ext.define('CustomApp', {
         Ext.create('Rally.data.wsapi.TreeStoreBuilder').build({
             models: [ model ],
             listeners: {
-                load: function(store) {
-                    var records = store.getRootNode().childNodes;
-                    this._calculateScore(records);
-                },
+                // load: function(store) {
+                //     var records = store.getRootNode().childNodes;
+                //     this._calculateScore(records);
+                // },
                 update: function(store, rec, modified, opts) {
-                    this._calculateScore([rec]);
+                    // console.log(modified,opts);
+                    // that.calculatedFields
+                    
+                    if (modified=="edit" && opts.length==1 
+                        && (!_.contains(_.pluck(that.calculatedFields,'field'),opts[0])))    {
+                        // console.log(rec,modified,opts);
+                        this._calculateScore([rec]);
+                    }
                 },
                 scope: this
             },
@@ -192,8 +211,8 @@ Ext.define('CustomApp', {
         var modelNames = selectedType.get('TypePath');
 
         var columns = ['Name'];
-        
         var context = this.getContext();
+        
         this._grid = this.add({
             xtype: 'rallygridboard',
             context: context,
@@ -236,16 +255,6 @@ Ext.define('CustomApp', {
             ],
             gridConfig: {
                 store: store,
-                // columnCfgs: [
-                //     'Name',
-                //     'c_SalesProfitability', 'RROEValue', 'UserBusinessValue', 'JobSize', 
-                //     this.getSetting("useExecutiveMandateField")===true ? this.getSetting("ExecutiveMandateField") : null,
-                //     {
-                //         text: "WSJF Score",
-                //         dataIndex: "WSJFScore",
-                //         editor: null
-                //     }
-                // ]
                 columnCfgs : columns
             },
             height: this.getHeight()
@@ -253,102 +262,28 @@ Ext.define('CustomApp', {
     },
     
     _calculateScore: function(records)  {
+        // console.log("_calculateScore");
         var that = this;
 
         Ext.Array.each(records, function(feature) {
+            console.log(feature.get("FormattedID"));
             _.each(that.calculatedFields,function(calcField) {
+                var oldValue = feature.get(calcField.field);
                 var value = that._calcValue(feature,calcField);
-                if (_.isNull(value.error))
-                    feature.set(calcField.field, value.value);
+                if (_.isNull(value.error)) {
+                    if (!_.isNull(value.value) && value.value!==oldValue)
+                        feature.set(calcField.field, value.value);
+                }
                 else
                     console.log("formula error:",value.error)
             })
         })
-        //     var jobSize = feature.data.JobSize;
-        //     var execMandate = that.getSetting("useExecutiveMandateField")===true ? feature.data[that.getSetting("ExecutiveMandateField")] : 1;
-        //     execMandate = _.isUndefined(execMandate) || _.isNull(execMandate) || execMandate === 0 ? 1 : execMandate;
-            
-        //     var timeValue = feature.data[that.TimeCriticalityField];
-        //     var OERR      = feature.data[that.RROEValueField];
-        //     var userValue = feature.data[that.UserBusinessValueField];
-        //     var oldScore  = feature.data[that.WSJFScoreField];
-        //     var isChecked = that.getSetting("ShowValuesAfterDecimal");
-            
-        //     if (jobSize > 0) { // jobSize is the denominator so make sure it's not 0
-        //         var score;
-    
-        //         if( !isChecked ) {
-        //             score = ( ((userValue + timeValue + OERR ) * execMandate) / jobSize);
-        //             score = Math.round(score);
-        //         }
-        //         else {
-        //             score = Math.floor(((userValue + timeValue + OERR ) * execMandate / jobSize) * 100)/100;
-        //         }
 
-        //         if (oldScore !== score) { // only update if score changed
-        //             feature.set('WSJFScore', score); // set score value in db
-        //         }
-        //     }
-        // });
     },
     
     getSettingsFields : function() {
         var values = [
-            /*{
-                name: 'ShowValuesAfterDecimal',
-                xtype: 'rallycheckboxfield',
-                label : "Show Values After the Decimal",
-                labelWidth: 200
-            },
-            {
-                name: 'useExecutiveMandateField',
-                xtype: 'rallycheckboxfield',
-                label : "Use Custom Executive Mandate Field",
-                labelWidth: 200
-            },
-            {
-                name: 'ExecutiveMandateField',
-                xtype: 'rallytextfield',
-                label : "Executive Mandate Field",
-                labelWidth: 200
-            },
-            {
-                name: 'TimeCriticalityField',
-                xtype: 'rallytextfield',
-                label : "Time Criticality Field",
-                labelWidth: 200
-            },
-            {
-                name: 'RROEValueField',
-                xtype: 'rallytextfield',
-                label : "RROEValue Field",
-                labelWidth: 200
-            },
-            {
-                name: 'UserBusinessValueField',
-                xtype: 'rallytextfield',
-                label : "User Business Value Field",
-                labelWidth: 200
-            },
-            {
-                name: 'WSJFScoreField',
-                xtype: 'rallytextfield',
-                label : "WSJFScore Field",
-                labelWidth: 200
-            },
-            {
-                name: 'JobSizeField',
-                xtype: 'rallytextfield',
-                label : "Job Size Field",
-                labelWidth: 200
-            },
-            {
-                name: 'Fields',
-                width : 400,
-                xtype: 'rallytextfield',
-                label : "Fields",
-                labelWidth: 200
-            },*/
+
             {
                 name: 'CalculatedField1',
                 width : 800,
@@ -392,16 +327,7 @@ Ext.define('CustomApp', {
             ValueMappings : _getValueMappingsString(),
             Weightings    : _getWeightingsString(),
             CalculatedField1 : "",
-            CalculatedField2 : "",
-            // ShowValuesAfterDecimal: false,
-            // useExecutiveMandateField : false,
-            // ExecutiveMandateField : 'c_ExecutiveMandate',
-            // TimeCriticalityField : 'TimeCriticality',
-            // RROEValueField : 'RROEValue',
-            // UserBusinessValueField : 'UserBusinessValue',
-            // WSJFScoreField : 'WSJFScore',
-            // JobSizeField : 'JobSize',
-            // Fields : ''
+            CalculatedField2 : ""
         }
     }
 });
