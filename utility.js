@@ -2,6 +2,25 @@
 // console.log(JSON.parse(_getValueMappingsString()));
 // console.log(JSON.parse(_getWeightingsString()));
 
+// var formula = "(c_SalesProfitability + c_CostSavings + c_CustomerExperience + c_AgentExperience + c_RiskMitigationCompliance + c_Urgency + c_RiskFactorOfNotDoing + c_Foundational)";
+// console.log(_getFormulaFields(formula));
+
+function  _getFormulaFields(formula) {
+
+        var regex = /\w{2,50}/g;
+        var m;
+        var fields = [];
+        do {
+            m = regex.exec(formula);
+            if (m) {
+                fields.push(m[0])
+            }
+        } while (m);
+        return fields;
+
+}
+
+
 function _getValueMappingsString() {
 
         return '{\n\

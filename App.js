@@ -5,36 +5,16 @@ Ext.define('CustomApp', {
     launch: function() {
         var that = this;
 
-        // console.log(that.getSettings());
-        that.TimeCriticalityField = that.getSetting('TimeCriticalityField');
-        that.RROEValueField = that.getSetting('RROEValueField');
-        that.UserBusinessValueField = that.getSetting('UserBusinessValueField');
-        that.WSJFScoreField = that.getSetting('WSJFScoreField');
-        that.JobSizeField = that.getSetting('JobSizeField');
-        that.ShowValuesAfterDecimal = that.getSettingsFields('ShowValuesAfterDecimal');
-        // that.FieldsText = that.getSetting("Fields");
-        // that.Fields = [];
-
-        // // trim the fields.
-        // if (!_.isUndefined(that.FieldsText)&&!_.isNull(that.FieldsText)) {
-        //     that.Fields = that.FieldsText.split(",");
-        //     _.each(that.Fields,function(field){ 
-        //         field = field.trim();
-        //     });
-        // }
         that.calculatedFields = that._getCalculatedFields();
 
         that.Weightings = JSON.parse(that.getSetting("Weightings"));
         that.ValueMappings = JSON.parse(that.getSetting("ValueMappings"));
-        console.log("w",that.Weightings);
-        console.log("v",that.ValueMappings);
-        
+
         this._grid = null;
         this._piCombobox = this.add({
             xtype: "rallyportfolioitemtypecombobox",
             padding: 5,
             listeners: {
-                //ready: this._onPICombobox,
                 select: this._onPICombobox,
                 scope: this
             }
@@ -60,25 +40,17 @@ Ext.define('CustomApp', {
     },
 
     _getWeightings : function() {
-
         return this.Weightings;
-
     },
 
     _getValueMappings : function() {
-
         return this.ValueMappings;
-
     },
-
-
 
     // returns true if the value should be mapped.
     _isMappableField : function(fieldName,record) {
 
         var value = record.get(fieldName);
-
-        // console.log("value",value,typeof(value),parseInt(""+value),!_.isNaN(parseInt(""+value)));
 
         // dont map if empty, or a numeric value.
         if ( _.isNull(value) || value==""|| _.isNumber(value)||
@@ -90,13 +62,9 @@ Ext.define('CustomApp', {
 
     _mapValue : function(value,field) {
 
-        // console.log("mapping",value,field);
-
         var mappings = this._getValueMappings();
         var key = _.has(mappings,field) ? field : 'default';
-        // console.log("key",key)
         var mapping = mappings[key];
-        // console.log(field + ":mapping",value,"to",mapping[value]);
         return _.has(mapping,value) ? mapping[value] : 0;
     },
 
@@ -109,15 +77,11 @@ Ext.define('CustomApp', {
             // return value * weightings[fieldName];
             weight = weightings[fieldName];
         }
-        // else
-        //     return value;
-        // console.log("weighting:",fieldName,"value",value,"weight",weight,"wvalue",(weight*value));
         return (weight*value);
     },
 
     _calcValue : function(record,calcField) {
-        // console.log("_calcValue");
-
+        
         var that = this;
         var regex = /\w{2,50}/g ;
 
@@ -126,7 +90,6 @@ Ext.define('CustomApp', {
             var value;
 
             if (that._isMappableField(fieldName,record)) {
-                // console.log("got value",record.get(fieldName),"from",fieldName);
                 value =  that._mapValue(record.get(fieldName),fieldName);
             }
             else
@@ -141,7 +104,6 @@ Ext.define('CustomApp', {
         var value;
 
         try {
-            // console.log("formula",formula);
             value = eval(formula);
             value = !_.isNumber(value) || _.isNaN(value) || !_.isFinite(value) ? 0 : value;
             console.log("formula:",formula,"value",value);
@@ -151,7 +113,6 @@ Ext.define('CustomApp', {
                 error : e.message
             }
         }
-        
 
         return {
             value : (Math.round(value * 100) / 100),
@@ -176,12 +137,8 @@ Ext.define('CustomApp', {
                 //     this._calculateScore(records);
                 // },
                 update: function(store, rec, modified, opts) {
-                    // console.log(modified,opts);
-                    // that.calculatedFields
-                    
                     if (modified=="edit" && opts.length==1 
                         && (!_.contains(_.pluck(that.calculatedFields,'field'),opts[0])))    {
-                        // console.log(rec,modified,opts);
                         this._calculateScore([rec]);
                     }
                 },
@@ -190,13 +147,32 @@ Ext.define('CustomApp', {
            // autoLoad: true,
             enableHierarchy: true
         }).then({
-            success: this._onStoreBuilt,
+            success: function(store,records) {
+                var that = this;
+                var selectedType = this._piCombobox.getRecord();
+                var modelNames = selectedType.get('TypePath');
+
+                Rally.data.ModelFactory.getModel({
+                    type: modelNames,
+                    success: function(model) {
+                        that._onStoreBuilt(store,records,model)
+                    }
+                });    
+            },
             scope: this
         });
     },
     
-    _onStoreBuilt: function(store, records) {
-        //var records = store.getRootNode().childNodes;
+    _onStoreBuilt: function(store, records,model) {
+
+        // validate the fields in the formula
+        var diffFields = this._allFieldsValid(model);
+        // show an error if there are any invalid fields
+        if (diffFields.length>0) {
+            Ext.Msg.alert('Status', 'Invalid fields in formula:' + diffFields);
+            return
+        }
+
   
         var selectedType = this._piCombobox.getRecord();
         var modelNames = selectedType.get('TypePath');
@@ -251,22 +227,53 @@ Ext.define('CustomApp', {
             height: this.getHeight()
         });
     },
+
+     // validates that the formula fields are valid ie. are part of the model. 
+    // returns an the invalid field name if not or null if good.
+    _allFieldsValid : function(model) {
+
+        var validFields = _.map( model.getFields(), function(f) { return f.name; });
+
+        var allFields = [];
+        var that = this;
+        _.each(this.calculatedFields,function(cf){
+            allFields.push(cf.field); 
+            allFields = allFields.concat( _getFormulaFields(cf.formula));
+        });
+        allFields = _.uniq(allFields);
+
+        var diff = _.difference(allFields, validFields);
+        return diff;
+    },
+
+    _allFieldsSet : function(fields,feature) {
+        var allSet = true;
+        _.each(fields,function(field){
+            var value = feature.get(field);
+            if (_.isNull(value)||_.isUndefined(value)||value=="")
+                allSet = false;
+        });
+        return allSet;
+    },
     
     _calculateScore: function(records)  {
-        // console.log("_calculateScore");
         var that = this;
 
         Ext.Array.each(records, function(feature) {
             console.log(feature.get("FormattedID"));
             _.each(that.calculatedFields,function(calcField) {
-                var oldValue = feature.get(calcField.field);
-                var value = that._calcValue(feature,calcField);
-                if (_.isNull(value.error)) {
-                    if (!_.isNull(value.value) && value.value!==oldValue)
-                        feature.set(calcField.field, value.value);
+                var fields = _getFormulaFields(calcField.formula);
+                // only update if required fields are set
+                if (that._allFieldsSet(fields,feature)) { 
+                    var oldValue = feature.get(calcField.field);
+                    var value = that._calcValue(feature,calcField);
+                    if (_.isNull(value.error)) {
+                        if (!_.isNull(value.value) && value.value!==oldValue)
+                            feature.set(calcField.field, value.value);
+                    }
+                    else
+                        console.log("formula error:",value.error)
                 }
-                else
-                    console.log("formula error:",value.error)
             })
         })
 
@@ -274,7 +281,6 @@ Ext.define('CustomApp', {
     
     getSettingsFields : function() {
         var values = [
-
             {
                 name: 'CalculatedField1',
                 width : 800,
@@ -305,9 +311,6 @@ Ext.define('CustomApp', {
                 label : "Field Value Weightings",
                 labelWidth: 200
             }
-
-
-
         ];
 
         return values;
