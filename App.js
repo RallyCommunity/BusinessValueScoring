@@ -273,6 +273,9 @@ Ext.define('CustomApp', {
                     }
                     else
                         console.log("formula error:",value.error)
+                } else {
+                    // set it to zero if not all fields set.
+                    feature.set(calcField.field, 0);
                 }
             })
         })
